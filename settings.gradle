@@ -1,0 +1,8 @@
+rootProject.name = 'steelcloud-era'
+
+include 'core'
+include 'train-api'
+include 'train-dispatch'
+include 'create-trim'
+include 'gameplay'
+// 其他模组...
