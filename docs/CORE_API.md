@@ -54,7 +54,9 @@ com.steelcloud.core.impl
 由谁调用：掠夺者专车、收缩球、交通内容、经济运输。
  
 核心方法（示意）：
-public interface TrainService {
+
+    public interface TrainService {
+    
     // 在指定位置生成一列车，返回列车唯一 ID
     UUID spawnTrain(ServerWorld world, BlockPos pos, TrainSpec spec);
 
@@ -69,7 +71,7 @@ public interface TrainService {
 
     // 注册列车生命周期监听器（生成、到站、销毁）
     void addListener(TrainLifecycleListener listener);
-}
+    }
  
 边界：
 • 不定义调度算法、时刻表、信号系统。
@@ -85,7 +87,9 @@ Fabric 1.20.1 提示：实体生成走 world.spawnEntity，但具体实体类型
 由谁调用：收缩球物品、未来的列车复制/迁移工具。
  
 核心方法：
-public interface TrainStorageService {
+
+    public interface TrainStorageService {
+    
     // 尝试收纳一节列车，成功返回存储快照
     Optional<StoredTrain> capture(ServerWorld world, UUID trainId);
 
@@ -94,7 +98,7 @@ public interface TrainStorageService {
 
     // 校验快照是否仍可放出（版本兼容、车体存在）
     boolean validate(StoredTrain stored);
-}
+    }
  
 边界：
 • StoredTrain 必须可序列化为 NBT，支持跨维度携带。
@@ -110,14 +114,15 @@ Fabric 1.20.1 提示：StoredTrain 建议用 NbtCompound 实现 writeNbt / readN
 由谁调用：政府 NPC、转账命令、成就系统、调试命令。
  
 核心方法：
-public interface EconomyService {
+
+    public interface EconomyService {
     long getBalance(UUID playerId);
     boolean withdraw(UUID playerId, long amount, String reason);
     boolean deposit(UUID playerId, long amount, String reason);
     TransferResult transfer(UUID from, UUID to, long amount); // 含 5% 转账税
     DailyLimit getDailyLimit(UUID playerId); // 购买/售卖已用额度
     void resetDailyLimitsIfNeeded();
-}
+    }
  
 边界：
 • 不实现税率规则、禁售表、物价计算，这些属于 economy 实现层。
@@ -133,12 +138,13 @@ Fabric 1.20.1 提示：数据持久化用 PersistentState 子类，存在主世�
 由谁调用：政府 GUI、交易逻辑、测试。
  
 核心方法：
-public interface PriceTableService {
+
+    public interface PriceTableService {
     OptionalLong getBuyPrice(ItemStack stack);   // 政府卖给玩家的价格
     OptionalLong getSellPrice(ItemStack stack);  // 政府从玩家收购的价格
     boolean isTradeable(ItemStack stack);        // 价格 > 0 且不在禁售状态
     String getTableVersion();                    // 用于审计和兼容检查
-}
+    }
  
 边界：
 • 只读，不提供修改价格的方法。
@@ -153,13 +159,14 @@ public interface PriceTableService {
 由谁调用：环境伤害逻辑、食物效果、死亡管线、HUD。
  
 核心方法：
-public interface HealthService {
+    
+    public interface HealthService {
     float getHealth(ServerPlayerEntity player);          // 0.0–100.0
     void setHealth(ServerPlayerEntity player, float value);
     void addHealth(ServerPlayerEntity player, float delta, String reason);
     HealthThreshold getThreshold(ServerPlayerEntity player); // NORMAL / WEAK / CRITICAL / DEAD
     void addListener(HealthChangeListener listener);
-}
+    }
  
 边界：
 • 不处理饥饿、细雪、淋雨的具体伤害来源，由调用方计算 delta。
@@ -175,18 +182,19 @@ Fabric 1.20.1 提示：玩家附加数据用 Cardinal Components API 的 Compone
 由谁调用：ServerPlayerEntity 死亡事件、健康值归零、/kill 命令钩子。
  
 核心方法：
-public interface DeathPipeline {
+    
+    public interface DeathPipeline {
     // 注册处理器，按 priority 排序
     void registerHandler(DeathHandler handler);
 
     // 处理一次致命伤，返回最终结果
     DeathResult process(ServerPlayerEntity player, DamageSource source);
-}
+    }
 
-public interface DeathHandler {
+    public interface DeathHandler {
     int priority(); // 数值越小越先执行
     Optional<DeathResult> handle(ServerPlayerEntity player, DamageSource source);
-}
+    }
  
 建议优先级顺序（文档锁定，代码实现可调）：
 1. keepInventory 检查（直接取消掉落，灵魂绑定休眠）。
@@ -207,15 +215,16 @@ public interface DeathHandler {
 由谁调用：economy 的售卖逻辑、调试命令、审计日志。
  
 核心方法：
-public interface ItemOriginService {
+
+    public interface ItemOriginService {
     ItemOrigin getOrigin(ItemStack stack);           // 未知时返回 UNKNOWN
     void markOrigin(ItemStack stack, ItemOrigin origin);
     boolean isSellableToGovernment(ItemStack stack); // 综合来源与禁售表
-}
+    }
 
-public enum ItemOrigin {
+    public enum ItemOrigin {
     CRAFTED, VILLAGER_TRADE, WANDERING_TRADE, LOOT, MOB_DROP, UNKNOWN
-}
+    }
  
 边界：
 • 只记录来源，不判断价格。
@@ -231,7 +240,8 @@ Fabric 1.20.1 提示：1.20.1 没有原生 Data Components，用 Cardinal Compon
 由谁调用：战斗模块（短刃槽）、装饰模块（旗帜/雨衣槽）、GUI。
  
 核心方法：
-public interface SlotService {
+
+    public interface SlotService {
     void registerSlot(SlotDefinition definition);
     Optional<SlotDefinition> getSlot(Identifier id);
     Collection<SlotDefinition> getAllSlots();
@@ -239,7 +249,7 @@ public interface SlotService {
     // 查询某玩家某槽位的物品
     ItemStack getSlotItem(ServerPlayerEntity player, Identifier slotId);
     boolean setSlotItem(ServerPlayerEntity player, Identifier slotId, ItemStack stack);
-}
+    }
  
 边界：
 • 核心只定义“槽位存在、能存什么、是否可见”，不定义短刃缩回动画、旗帜渲染。
@@ -255,11 +265,12 @@ Fabric 1.20.1 提示：Fabric 没有 Forge 的 IItemHandler 槽位系统，需�
 由谁调用：维度模块、传送门方块、调试命令。
  
 核心方法：
-public interface DimensionTravelService {
+    
+    public interface DimensionTravelService {
     boolean teleport(ServerPlayerEntity player, RegistryKey<World> dimension, Vec3d targetPos);
     boolean teleportWithMount(ServerPlayerEntity player, RegistryKey<World> dimension, Vec3d targetPos);
     void registerRule(DimensionTravelRule rule); // 例如 Y=500 触发
-}
+    }
  
 边界：
 • 不生成维度，不注册传送门方块。
@@ -275,12 +286,13 @@ Fabric 1.20.1 提示：自定义维度需要 fabric-dimensions 或数据包 dime
 由谁调用：所有需要软依赖外部模组的模块。
  
 核心方法：
-public interface ModCompatService {
+    
+    public interface ModCompatService {
     boolean isLoaded(String modId);
     Optional<String> getVersion(String modId);
     boolean isVersionAtLeast(String modId, String minimum);
     void requireOrWarn(String modId, String minimumVersion, String featureName);
-}
+    }
  
 边界：
 • 只检查，不加载类。真正调用外部 API 的代码必须放在独立的 compat 类中，且用 isLoaded 保护。
@@ -294,12 +306,13 @@ public interface ModCompatService {
 由谁调用：economy、gameplay、train-dispatch 等。
  
 核心方法：
-public interface DataTableService {
+
+    public interface DataTableService {
     <T> void registerTable(Identifier id, Class<T> type, DataTableCodec<T> codec);
     <T> Optional<T> getTable(Identifier id, Class<T> type);
     void reloadAll(MinecraftServer server);
     Set<Identifier> getLoadedTables();
-}
+    }
  
 边界：
 • 只提供加载、校验、重载框架，不定义具体表结构。
