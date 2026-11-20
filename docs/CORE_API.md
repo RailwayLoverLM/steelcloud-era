@@ -1,71 +1,72 @@
-#钢云纪元：核心 API 文档
+钢云纪元：核心 API 文档
  
-文档版本：v0.2
-上一版本：v0.1
+文档版本：v0.1.0（构思阶段）
 目标平台：Minecraft 1.20.1 / Fabric Loader + Fabric API
 维护者：拉面、乌龙
-更新规则：任何接口签名变更必须先改本文档，再改代码；PR 中引用本文档章节号。
- 
-v0.2 变更摘要（详细见第 6 节变更日志）：
-• spawnTrain 改为返回 Optional<UUID>；resetDailyLimitsIfNeeded、requireOrWarn 改为返回 boolean
-• getBalance 对未注册 UUID 抛 NoSuchAccountException；getSlotItem 明确返回副本
-• 新增 2.12–2.24 共 13 个补齐类型定义
-• 新增 3.9 服务注册表（SteelCloudServices）
-• 补强 3.2 NbtKeys、3.5 NetworkChannels、3.8 GameTest 接入
-• 修订 3 处文档未明确语义（创造模式健康、ItemOrigin 打标时机、radius 单位） 
+更新规则：任何接口签名变更必须先改本文档，再改代码；PR 中引用本文档章节号。版本说明：当前处于构思阶段，尚未有首次编译通过的发布版本，因此文档版本维持 v0.1.0。构思阶段的修订直接在本文档内进行，不维护历史版本；首次编译通过并确认接口稳定后，按第 6 节规则进入 semver 递增。 
  
 0. 设计原则
 1. 核心只放契约，不放玩法实现。 接口在这里定义，实现由各模组提供。
-2. 核心不依赖 Create、MTR、TACZ、Aether 等外部模组。 外部模组只出现在 compat 或对应功能模块。
+2. 核心不依赖 Create、MTR、TACZ、Aether 等外部模组。 外部模组只出现在 compat 或对应功能模块。train 模组作为 Create 附属，由它负责与 Create 的适配，核心不感知 Create。
 3. 服务端权威。 经济、死亡、限额、列车状态等关键数据以服务端为准，客户端只做展示。
-4. 所有接口通过服务注册表获取，不直接 new 实现类。 
+4. 所有接口通过服务注册表获取，不直接 new 实现类。
+5. YAGNI。 只把"除实现模块外还有其他模块需要调用"的契约放进核心。内部使用的概念（如列车线路、站点、时刻表）留在实现模块，不预先抽象。 
  
 1. 包结构
 com.steelcloud.core.api
-├── SteelCloudServices              // 服务注册表入口 [v0.2]
+├── SteelCloudServices              // 服务注册表入口
+├── ServiceUnavailableException
 ├── SteelCloudRegistry              // 注册辅助
-├── NbtKeys                         // NBT 键常量 [v0.2]
+├── NbtKeys                         // NBT 键常量
 ├── train
 │   ├── TrainService
-│   ├── TrainSpec                   // [v0.2]
-│   ├── TrainSnapshot               // [v0.2]
-│   ├── TrainLifecycleListener      // [v0.2]
+│   ├── TrainSpec
+│   ├── TrainSnapshot
+│   ├── TrainLifecycleListener
 │   ├── TrainStorageService
-│   └── StoredTrain                 // [v0.2]
+│   └── StoredTrain
 ├── economy
 │   ├── EconomyService
-│   ├── TransferResult              // [v0.2]
-│   ├── DailyLimit                  // [v0.2]
+│   ├── NoSuchAccountException
+│   ├── TransferResult
+│   ├── DailyLimit
 │   └── PriceTableService
+├── currency
+│   ├── Denomination
+│   ├── CurrencySpec
+│   ├── CurrencyService
+│   ├── PaymentResult
+│   └── PaymentService
 ├── health
 │   ├── HealthService
-│   ├── HealthThreshold             // [v0.2]
-│   └── HealthChangeListener        // [v0.2]
+│   ├── HealthThreshold
+│   └── HealthChangeListener
 ├── death
 │   ├── DeathPipeline
 │   ├── DeathHandler
-│   └── DeathResult                 // [v0.2]
+│   └── DeathResult
 ├── item
 │   ├── ItemOriginService
 │   └── ItemOrigin
 ├── slot
 │   ├── SlotService
-│   └── SlotDefinition              // [v0.2]
+│   ├── SlotDefinition
+│   └── SlotOperationResult
 ├── dimension
 │   ├── DimensionTravelService
-│   └── DimensionTravelRule         // [v0.2]
+│   └── DimensionTravelRule
 ├── compat
 │   └── ModCompatService
 ├── data
 │   ├── DataTableService
-│   ├── DataTableCodec              // [v0.2]
-│   └── DataTableException          // [v0.2]
+│   ├── DataTableCodec
+│   └── DataTableException
 ├── persistence
 │   └── SteelCloudPersistentState
 ├── network
-│   └── NetworkChannels             // [v0.2]
+│   └── NetworkChannels
 └── util
-    └── ServerThreadAssert          // [v0.2]
+    └── ServerThreadAssert
 
 com.steelcloud.core.impl
 ├── registry
@@ -74,6 +75,7 @@ com.steelcloud.core.impl
 ├── persistence
 ├── command
 ├── test
+├── currency
 └── content.materials
  
  
@@ -82,13 +84,13 @@ com.steelcloud.core.impl
 2.1 TrainService
  
 定位：列车实体的统一查询与生成入口。
-解决什么问题：玩法、经济、交通内容模块不应该直接 import Create 或 MTR 的类。它们只通过这个接口说"给我生成一列车""这节车现在在哪"。
-由谁实现：train-dispatch 或 train-api 的具体实现层。
+解决什么问题：玩法、经济、交通内容模块不应该直接 import Create 或 train 模组的 Create contraption 类。它们只通过这个接口说"给我生成一列车""这节车现在在哪"。
+由谁实现：Create 附属的 train 模组。
 由谁调用：掠夺者专车、收缩球、交通内容、经济运输。
 
     public interface TrainService {
     // 在指定位置生成一列车；失败（无轨道、位置非法、实现层未加载）返回 empty
-    Optional<UUID> spawnTrain(ServerWorld world, BlockPos pos, TrainSpec spec); // [v0.2] 原 UUID
+    Optional<UUID> spawnTrain(ServerWorld world, BlockPos pos, TrainSpec spec);
 
     boolean despawnTrain(UUID trainId);
 
@@ -98,24 +100,30 @@ com.steelcloud.core.impl
     List<TrainSnapshot> getTrainsNear(ServerWorld world, BlockPos pos, double radius);
 
     void addListener(TrainLifecycleListener listener);
-    void removeListener(TrainLifecycleListener listener); // [v0.2] 模块卸载时必须调用
+
+    // 模块卸载时必须调用，防止监听器泄漏
+    void removeListener(TrainLifecycleListener listener);
+
+    // 返回 train 模组支持的列车类型 id 集合；无类型概念时返回空集
+    default Set<Identifier> getAvailableBodyTypes() { return Set.of(); }
     }
  
 边界：
-• 不定义调度算法、时刻表、信号系统。
-• 不直接暴露 Create/MTR 的实体类型。
-• TrainSpec 是核心定义的数据对象，包含车体类型、车厢数、初始速度等抽象字段。 
-Fabric 1.20.1 提示：实体生成走 world.spawnEntity，具体实体类型由实现层决定；跨维度查询需遍历 MinecraftServer.getWorlds()。 
+• 不定义调度算法、时刻表、信号系统。调度、仪表板、线路、站点属于 train 模组内部，不进入核心。
+• 不直接暴露 Create 的 contraption / 实体类型。
+• TrainSpec 是核心定义的数据对象，包含车体类型、车厢数、初始速度等抽象字段。
+• 到站事件通过 TrainLifecycleListener.onArrive(snapshot, stationName) 提供站名字符串，不暴露站点对象。 
+Fabric 1.20.1 提示：实体生成走 world.spawnEntity，具体实体类型由 train 模组决定；跨维度查询需遍历 MinecraftServer.getWorlds()。 
  
 2.2 TrainStorageService
  
 定位：列车收纳/放出的抽象接口。
-解决什么问题：收缩球需要"把一节列车存进球里，再在铁轨上放出来"，但不应该知道列车是 Create 的还是 MTR 的。
-由谁实现：train-api 或 transport_content。
+解决什么问题：收缩球需要"把一节列车存进球里，再在铁轨上放出来"，但不应该知道 Create contraption 的内部结构。
+由谁实现：Create 附属的 train 模组。
 由谁调用：收缩球物品、未来的列车复制/迁移工具。
 
     public interface TrainStorageService {
-    // 收纳一节车厢/车头。传入整列编组 UUID 时返回 empty（不支持整列收纳）
+    // 收纳一节车厢/车头。传入整列编组 UUID 时返回 empty
     Optional<StoredTrain> capture(ServerWorld world, UUID trainId);
 
     boolean release(ServerWorld world, BlockPos railPos, StoredTrain stored);
@@ -132,13 +140,13 @@ Fabric 1.20.1 提示：StoredTrain 建议用 NbtCompound 实现 writeNbt/readNbt
  
 2.3 EconomyService
  
-定位：玩家账户与转账的统一入口。
-解决什么问题：政府交易、转账税、限额查询、成就奖励都可能改余额，必须走同一套服务端权威逻辑。
+定位：玩家账户余额与转账的统一入口。这是数字余额系统，与物理货币（2.28–2.30）是两套独立系统，桥接由业务模块（银行）完成。
+解决什么问题：政府账户结算、转账税、限额查询、成就奖励都可能改余额，必须走同一套服务端权威逻辑。
 由谁实现：economy 模块。
 由谁调用：政府 NPC、转账命令、成就系统、调试命令。
 
     public interface EconomyService {
-    // 未注册 UUID 抛 NoSuchAccountException（附带消息 "Error: selected player doesn't exist"）
+    // 未注册 UUID 抛 NoSuchAccountException
     long getBalance(UUID playerId);
 
     boolean withdraw(UUID playerId, long amount, String reason);
@@ -150,7 +158,7 @@ Fabric 1.20.1 提示：StoredTrain 建议用 NbtCompound 实现 writeNbt/readNbt
     DailyLimit getDailyLimit(UUID playerId);
 
     // 返回是否实际发生了重置
-    boolean resetDailyLimitsIfNeeded(); // [v0.2] 原 void
+    boolean resetDailyLimitsIfNeeded();
     }
  
 边界：
@@ -178,7 +186,7 @@ Fabric 1.20.1 提示：数据持久化用 PersistentState 子类，存在主世�
 • 只读，不提供修改价格的方法。
 • 禁售状态由 economy 实现层结合 ItemOriginService 判断，接口只暴露结果。
 • 物价表版本必须与 xlsx 源文件版本对应。
-• 对空栈（stack.isEmpty()）的三个方法：getBuyPrice/getSellPrice 返回 OptionalLong.empty()，isTradeable 返回 false。 
+• 对空栈（stack.isEmpty()）：getBuyPrice/getSellPrice 返回 OptionalLong.empty()，isTradeable 返回 false。 
  
 2.5 HealthService
  
@@ -193,14 +201,14 @@ Fabric 1.20.1 提示：数据持久化用 PersistentState 子类，存在主世�
     void addHealth(ServerPlayerEntity player, float delta, String reason);
     HealthThreshold getThreshold(ServerPlayerEntity player); // NORMAL / WEAK / CRITICAL / DEAD
     void addListener(HealthChangeListener listener);
-    void removeListener(HealthChangeListener listener);      // [v0.2]
+    void removeListener(HealthChangeListener listener);
     }
  
 边界：
 • 不处理饥饿、细雪、淋雨的具体伤害来源，由调用方计算 delta。
 • =0% 时触发死亡由 DeathPipeline 统一处理，不在这里直接 kill。
 • 仅生存/冒险模式生效，创造模式 getHealth 返回 100。
-• 写操作约定（v0.2 明确）：创造模式 / 已死亡玩家调用 setHealth、addHealth 静默忽略，不抛异常；数值钳制到 [0, 100]；setHealth 和 addHealth 均触发监听器（setHealth 在值实际变化时触发）。 
+• 写操作约定：创造模式 / 已死亡玩家调用 setHealth、addHealth 静默忽略，不抛异常；数值钳制到 [0, 100]；setHealth 和 addHealth 均触发监听器（setHealth 在值实际变化时触发）。 
 Fabric 1.20.1 提示：玩家附加数据用 Cardinal Components API 的 Component，或自己用 PersistentState + UUID 映射。前者更方便同步到客户端。 
  
 2.6 DeathPipeline
@@ -220,10 +228,10 @@ Fabric 1.20.1 提示：玩家附加数据用 Cardinal Components API 的 Compone
     Optional<DeathResult> handle(ServerPlayerEntity player, DamageSource source);
     }
  
-process 返回值消费方式（v0.2 明确）：
+process 返回值消费方式：
 • 若管线结果或任意 handler 返回 DeathResult.Cancelled(hp)：取消死亡事件，将玩家血量置为 hp。
 • 若最终为 DeathResult.Proceed()：走正常死亡掉落。
-• 管线会按 priority 升序调用每个 handler，遇到第一个返回 Optional.of(...) 的 handler 就终止并返回其结果；若全部返回 empty，返回 Proceed()。 
+• 管线按 priority 升序调用每个 handler，遇到第一个返回 Optional.of(...) 的 handler 就终止并返回其结果；若全部返回 empty，返回 Proceed()。 
 建议优先级顺序（文档锁定，代码实现可调）：
 1. keepInventory 检查（直接取消掉落，灵魂绑定休眠）。
 2. 原版不死图腾（副手优先）。
@@ -252,7 +260,7 @@ process 返回值消费方式（v0.2 明确）：
     CRAFTED, VILLAGER_TRADE, WANDERING_TRADE, LOOT, MOB_DROP, UNKNOWN
     }
  
-打标时机（v0.2 明确，实现层必须覆盖以下事件）：
+打标时机（实现层必须覆盖以下事件）：
 • 合成完成事件 → CRAFTED
 • 村民交易完成事件 → VILLAGER_TRADE
 • 流浪商人交易完成事件 → WANDERING_TRADE
@@ -276,21 +284,12 @@ Fabric 1.20.1 提示：1.20.1 没有原生 Data Components，用 Cardinal Compon
     Collection<SlotDefinition> getAllSlots();
 
     // 返回副本，调用方修改不影响内部存储
-    ItemStack getSlotItem(ServerPlayerEntity player, Identifier slotId); // [v0.2] 明确副本
+    ItemStack getSlotItem(ServerPlayerEntity player, Identifier slotId);
 
     boolean setSlotItem(ServerPlayerEntity player, Identifier slotId, ItemStack stack);
 
-    // v0.2 新增：可选重载，返回详细结果；原 setSlotItem 等价于 trySetSlotItem(...).isSuccess()
+    // 返回详细结果；原 setSlotItem 等价于 trySetSlotItem(...).isSuccess()
     SlotOperationResult trySetSlotItem(ServerPlayerEntity player, Identifier slotId, ItemStack stack);
-    }
-
-    public sealed interface SlotOperationResult {
-    record Success() implements SlotOperationResult {}
-    record UnknownSlot(Identifier slotId) implements SlotOperationResult {}
-    record InvalidItem(ItemStack stack) implements SlotOperationResult {}
-    record Conflict(Identifier conflictingSlot) implements SlotOperationResult {}
-
-    default boolean isSuccess() { return this instanceof Success; }
     }
  
 边界：
@@ -326,7 +325,7 @@ Fabric 1.20.1 提示：自定义维度需要 fabric-dimensions 或数据包 dime
 定位：外部模组存在性与版本检查。
 解决什么问题：所有模块都可能需要"Create 在不在""MTR 版本够不够"，但不应各自写 FabricLoader.getInstance().isModLoaded。
 由谁实现：core.impl.compat。
-由谁调用：所有需要软依赖外部模组的模块。
+由谁调用：所有需要软依赖外部模组的模块；train 模组用它检查 Create 是否加载（isLoaded("create")）。
 
     public interface ModCompatService {
     boolean isLoaded(String modId);
@@ -334,7 +333,7 @@ Fabric 1.20.1 提示：自定义维度需要 fabric-dimensions 或数据包 dime
     boolean isVersionAtLeast(String modId, String minimum);
 
     // 未满足时记 WARN 日志，返回是否满足；不抛异常
-    boolean requireOrWarn(String modId, String minimumVersion, String featureName); // [v0.2] 原 void
+    boolean requireOrWarn(String modId, String minimumVersion, String featureName);
     }
  
 边界：
@@ -346,7 +345,7 @@ Fabric 1.20.1 提示：自定义维度需要 fabric-dimensions 或数据包 dime
 定位：JSON/CSV 数据表的统一加载框架。
 解决什么问题：物价表、禁售表、成就条件、列车路线、纹饰效果都可以是数据驱动，但不应每个模块写一套加载器。
 由谁实现：core.impl.data。
-由谁调用：economy、gameplay、train-dispatch 等。
+由谁调用：economy、gameplay、train 等。
 
     public interface DataTableService {
     // 重复注册同一 id 抛 IllegalStateException；注册时记录 type 泛型签名用于后续校验
@@ -359,10 +358,10 @@ Fabric 1.20.1 提示：自定义维度需要 fabric-dimensions 或数据包 dime
 
     Set<Identifier> getLoadedTables();
 
-    // v0.2 新增：表版本号，每次成功 reload 递增；调用方可据此判断缓存是否陈旧
+    // 表版本号，每次成功 reload 递增；调用方可据此判断缓存是否陈旧
     long getRevision(Identifier id);
 
-    // v0.2 新增：reload 后通知参数为本次实际发生变化的表 id 集合
+    // reload 后通知参数为本次实际发生变化的表 id 集合
     void addReloadListener(Consumer<Set<Identifier>> listener);
     void removeReloadListener(Consumer<Set<Identifier>> listener);
     }
@@ -371,7 +370,7 @@ Fabric 1.20.1 提示：自定义维度需要 fabric-dimensions 或数据包 dime
 • 只提供加载、校验、重载框架，不定义具体表结构。
 • 数据文件放 data/steelcloud/tables/<id>.json。
 • 加载失败必须记录日志并阻止服务器启动（或按配置降级）。
-• reload 语义（v0.2 明确）：旧 getTable 返回值是不可变快照，reload 后仍可继续使用（内容为旧数据），不会失效；调用方如需最新数据应重新调用 getTable 或通过 addReloadListener 收到通知后刷新。 
+• reload 语义：旧 getTable 返回值是不可变快照，reload 后仍可继续使用（内容为旧数据），不会失效；调用方如需最新数据应重新调用 getTable 或通过 addReloadListener 收到通知后刷新。 
 Fabric 1.20.1 提示：Fabric 的 ResourceManagerHelper 可以监听数据包重载；服务端启动时手动加载一次。 
  
 2.12 TrainSpec
@@ -384,11 +383,11 @@ Fabric 1.20.1 提示：Fabric 的 ResourceManagerHelper 可以监听数据包重
         NbtCompound customData) {
 
     public TrainSpec {
+        if (bodyType == null) throw new IllegalArgumentException("bodyType must not be null");
         if (carCount < 1) throw new IllegalArgumentException("carCount must be >= 1");
         if (initialSpeed < 0) throw new IllegalArgumentException("initialSpeed must be >= 0");
-        // 构造时复制，保证不可变性
-        if (customData == null) customData = new NbtCompound();
-        else customData = customData.copy();
+        if (facing == null) throw new IllegalArgumentException("facing must not be null");
+        customData = customData == null ? new NbtCompound() : customData.copy();
     }
 
     public static TrainSpec of(Identifier bodyType, int carCount);
@@ -427,7 +426,7 @@ Fabric 1.20.1 提示：Fabric 的 ResourceManagerHelper 可以监听数据包重
     void readNbt(NbtCompound nbt);
     Identifier getTrainType();
 
-    // 格式版本，单调递增；validate 时与实现层支持的 [MIN_SUPPORTED, CURRENT] 范围比对
+    // 格式版本，单调递增；validate 时与 train 模组支持的 [MIN_SUPPORTED, CURRENT] 范围比对
     int getFormatVersion();
     }
  
@@ -476,8 +475,8 @@ Fabric 1.20.1 提示：Fabric 的 ResourceManagerHelper 可以监听数据包重
 2.20 DeathResult
 
     public sealed interface DeathResult {
-    record Cancelled(float remainingHealth) implements DeathResult {} // 取消死亡事件
-    record Proceed() implements DeathResult {}                         // 放行走正常掉落
+    record Cancelled(float remainingHealth) implements DeathResult {}
+    record Proceed() implements DeathResult {}
 
     static DeathResult cancel(float hp);
     static DeathResult proceed();
@@ -497,7 +496,19 @@ Fabric 1.20.1 提示：Fabric 的 ResourceManagerHelper 可以监听数据包重
     }
  
  
-2.22 DimensionTravelRule
+2.22 SlotOperationResult
+
+    public sealed interface SlotOperationResult {
+    record Success() implements SlotOperationResult {}
+    record UnknownSlot(Identifier slotId) implements SlotOperationResult {}
+    record InvalidItem(ItemStack stack) implements SlotOperationResult {}
+    record Conflict(Identifier conflictingSlot) implements SlotOperationResult {}
+
+    default boolean isSuccess() { return this instanceof Success; }
+    }
+ 
+ 
+2.23 DimensionTravelRule
 
     public interface DimensionTravelRule {
     Identifier getId();
@@ -508,7 +519,7 @@ Fabric 1.20.1 提示：Fabric 的 ResourceManagerHelper 可以监听数据包重
     }
  
  
-2.23 DataTableCodec
+2.24 DataTableCodec
 
     public interface DataTableCodec<T> {
     T decode(JsonObject json) throws DataTableException;
@@ -516,13 +527,136 @@ Fabric 1.20.1 提示：Fabric 的 ResourceManagerHelper 可以监听数据包重
     }
  
  
-2.24 DataTableException
+2.25 DataTableException
 
     public class DataTableException extends RuntimeException {
     public DataTableException(String message);
     public DataTableException(String message, Throwable cause);
     }
  
+ 
+2.26 Denomination
+ 
+定位：单一面额的货币定义。
+由谁实现：currency 模块。
+
+    public record Denomination(int value, Item item) {
+    public Denomination {
+        if (value <= 0) throw new IllegalArgumentException("value must be positive");
+        if (item == null) throw new IllegalArgumentException("item must not be null");
+    }
+    }
+ 
+边界：value 必须为正整数。面额不强制规范（允许 1/5/20/50/100 共存），支付算法使用动态规划而非贪心。 
+ 
+2.27 CurrencySpec
+ 
+定位：一种货币的完整定义（显示名、符号、面额集合）。
+由谁实现：currency 模块。
+
+    public record CurrencySpec(
+        Identifier id,
+        Text displayName,
+        String symbol,
+        List<Denomination> denominations) {
+
+    public CurrencySpec {
+        // 构造时按 value 降序排序、校验唯一性
+        denominations = List.copyOf(denominations);
+    }
+    }
+ 
+边界：
+• 面额集合按 value 降序排序后存储，调用方可直接依赖此顺序。
+• 面额 value 不可重复。
+• 至少包含一个面额。
+• 面额值不强制规范，但实现层应在注册时记录 WARN，提示"非规范面额可能增加找零复杂度"。 
+ 
+2.28 CurrencyService
+ 
+定位：货币注册与查询入口。
+解决什么问题：物品注册时需要声明"这个物品是人民币 100 元"，交易模块需要按货币 id 查找面额。
+由谁实现：currency 模块。
+由谁调用：物品注册模块、交易模块、GUI、调试命令。
+
+    public interface CurrencyService {
+    // 重复 id 抛 IllegalStateException
+    void registerCurrency(CurrencySpec spec);
+
+    Optional<CurrencySpec> getCurrency(Identifier id);
+    Collection<CurrencySpec> getAllCurrencies();
+
+    // 按物品查找其所属货币及面额；非货币物品返回 empty
+    Optional<Denomination> getDenomination(Identifier currencyId, Item item);
+
+    // 扫描物品栏求和；只读操作，客户端调用返回客户端侧观测值
+    long getBalance(PlayerEntity player, Identifier currencyId);
+    }
+ 
+边界：
+• 只负责注册与查询，不执行支付。
+• getBalance 只做物品栏扫描求和，不涉及账户余额。
+• 货币物品可以是任意 Item，核心不要求特定物品类型。 
+ 
+2.29 PaymentResult
+ 
+定位：支付操作的统一返回类型。
+
+    public sealed interface PaymentResult {
+    record Success(long amount) implements PaymentResult {}
+    record InsufficientFunds(long required, long available) implements PaymentResult {}
+    record CannotMakeChange(long amount, long maxPayable) implements PaymentResult {}
+    record AmountTooLarge(long amount, long limit) implements PaymentResult {}
+    record CurrencyNotRegistered(Identifier id) implements PaymentResult {}
+    record InvalidAmount(long amount) implements PaymentResult {}
+    }
+ 
+语义：
+• CannotMakeChange：买家能凑出 ≥ amount，但与卖家库存联合求解后仍无法找零。
+• AmountTooLarge：金额超过 MAX_AMOUNT（默认 100,000，可配置）。
+• maxPayable：买家当前库存能凑出的最大可找零金额，用于提示玩家。 
+ 
+2.30 PaymentService
+ 
+定位：物理货币支付的核心入口。采用净转移模型：对每种面额计算净转移量，一次性完成双方物品栏变更，不采用"先付再找"的迭代流程。
+解决什么问题：玩家 ↔ 玩家、玩家 ↔ 虚拟商人、玩家 ↔ 系统的支付需要统一的找零算法和原子性保证。
+由谁实现：currency 模块。
+由谁调用：交易模块、政府 NPC、村民交易 mixin、调试命令。
+
+    public interface PaymentService {
+    // 玩家 ↔ 玩家
+    PaymentResult pay(ServerPlayerEntity payer, ServerPlayerEntity payee,
+                      Identifier currencyId, long amount);
+
+    // 玩家 ↔ 任意物品栏（NPC、交易站职员、虚拟商人）
+    // 溢出物掉在 payeeDropPos；payer 溢出物掉在 payer 位置
+    PaymentResult payToInventory(ServerPlayerEntity payer, Inventory payeeInv,
+                                 Vec3d payeeDropPos, Identifier currencyId, long amount);
+
+    // 玩家 → 系统（钱消失）
+    PaymentResult payToVoid(ServerPlayerEntity payer, Identifier currencyId,
+                            long amount, String reason);
+
+    // 系统 → 玩家（凭空生成）
+    PaymentResult refund(ServerPlayerEntity payee, Identifier currencyId,
+                         long amount, String reason);
+
+    boolean canPay(ServerPlayerEntity payer, Identifier currencyId, long amount);
+    }
+ 
+算法（实现层契约，不对外暴露）：
+1. 扫描双方物品栏，按面额统计可用张数。
+2. 阶段 1：精确支付 DP（多重背包），有解则直接执行。
+3. 阶段 2：超额找零 DP，按超额金额升序遍历，找第一个"买家能凑出 V 且卖家能凑出 V - amount"的方案。
+4. 阶段 3：返回 CannotMakeChange。
+5. 执行：按净转移量直接从双方物品栏扣除/给予，溢出物 world.spawnEntity 在接收方位置，owner = 接收方 UUID，pickupDelay = 10。 
+边界：
+• 不假设面额规范。
+• 不假设商人库存充足；商人每种面额各一组 64 张是业务层约定，核心不感知。
+• MAX_AMOUNT 默认 100,000，通过配置文件可改。
+• payToInventory 的 payeeInv 可以是任意 Inventory 实现（NPC、虚拟商人、箱子）。
+• 所有方法必须在服务端线程调用，实现层入口应调用 ServerThreadAssert.check。
+• 原子性：要么全部成功，要么双方物品栏不变。实现层需在扣除前完成全部求解。 
  
 3. 非接口但属于核心的共享内容
  
@@ -532,7 +666,7 @@ Fabric 1.20.1 提示：Fabric 的 ResourceManagerHelper 可以监听数据包重
 • steel_ingot（钢锭）：钢刀、钢盾、液压机、水车、转子都依赖。
 • steel_plate（钢板）：液压机、风桨、防护服依赖。
 • steel_bearing（钢制轴承）：水车、转子依赖。 
-其余材料归各自模块：铜缆归 power，焦煤电池归 power，云合金归 gameplay，烧钢归 industry。
+其余材料归各自模块：铜缆归 power，焦煤电池归 power，云合金归 gameplay，烧钢归 industry。具体 Item 子类、模型、材质由内容模块提供，核心只声明注册位。
  
 3.2 共享数据组件 / NBT 键
  
@@ -542,8 +676,6 @@ public final class NbtKeys {
     public static final String TRAIN_LINK = "steelcloud:train_link"; // 收缩球内列车快照
     public static final String HEALTH     = "steelcloud:health";     // 玩家健康值（若不用 Cardinal Components）
     public static final String SLOTS      = "steelcloud:slots";      // 扩展槽位数据
-
-    private NbtKeys() {}
 }
  
 3.3 共享标签
@@ -572,8 +704,7 @@ public final class NetworkChannels {
     public static final String ECONOMY = "steelcloud:economy";
     public static final String TRAIN   = "steelcloud:train";
     public static final String HEALTH  = "steelcloud:health";
-
-    private NetworkChannels() {}
+    public static final String CURRENCY = "steelcloud:currency";
 }
  
 核心提供 PacketCodec 工具和 ServerPlayNetworking 包装，不定义具体包。
@@ -593,13 +724,14 @@ getId() 建议与 PersistentStateManager.getOrCreate(...) 的 name 参数保持�
 /steelcloud debug economy <player>
 /steelcloud debug train list
 /steelcloud debug health <player>
+/steelcloud debug currency <player> <currencyId>
 /steelcloud reload tables
 /steelcloud compat
  
 3.8 测试工具
-• GameTest 入口：com.steelcloud.core.impl.test.SteelCloudGameTest，在 fabric.mod.json 中以 fabric-gametest entrypoint 注册。
+• GameTest 入口：com.steelcloud.core.impl.test.SteelCloudGameTest，在 fabric.mod.json 中以 fabric-gametest entrypoint 注册（需独立 source set 与 fabric-gametest-api-v1 依赖）。
 • 服务端集成测试脚本放 run/ 下，CI 用 ./gradlew runServer + 超时检查。
-• 单元测试覆盖：税收、限额、耐久三层、功率计算、食物溢出。‌注：耐久三层、功率计算、食物溢出属于各功能模块（combat / power / gameplay）的测试项，核心只提供 GameTest 入口与断言工具。 
+• 单元测试覆盖：税收、限额、耐久三层、功率计算、食物溢出。‌耐久三层、功率计算、食物溢出属于各功能模块（combat / power / gameplay）的测试项，核心只提供 GameTest 入口与断言工具。支付算法的测试项见 3.11。 
 3.9 服务注册表
  
 整个核心的入口。所有接口通过它获取实现，不直接 new。
@@ -621,8 +753,6 @@ public final class SteelCloudServices {
     // 仅测试/关机清理用
     public static void clear();
 }
-
-public class ServiceUnavailableException extends IllegalStateException { /* ... */ }
  
 调用方规范：
 • 必需依赖 → get()，fail-fast，错误清晰可诊断。
@@ -635,7 +765,21 @@ public final class ServerThreadAssert {
     public static void check(MinecraftServer server); // 非服务端线程抛 IllegalStateException
 }
  
-文档中所有标注"服务端线程调用"的接口方法，实现层应在入口调用 ServerThreadAssert.check(server)。 
+文档中所有标注"服务端线程调用"的接口方法，实现层应在入口调用 ServerThreadAssert.check(server)。
+ 
+3.11 货币系统与账户系统的关系
+ 
+EconomyService（2.3）是数字余额系统，PaymentService（2.30）是物理货币系统。两者独立：
+• 数字余额用于政府账户结算、转账税、每日限额等不需要实物货币的场景。
+• 物理货币用于玩家手持货币交易、虚拟商人交易等需要物品转移的场景。
+• 两者的桥接（如"银行：存入货币 → 账户余额增加"）由业务模块实现，核心不提供桥接接口。 
+支付算法测试项（实现层）：
+• 精确支付：金额可由买家库存恰好凑出。
+• 超额找零：买家凑出 V > amount，卖家凑出 V - amount。
+• 库存不足：买家总价值 < amount，返回 InsufficientFunds。
+• 无法找零：买家能凑 ≥ amount，但与卖家库存联合求解失败，返回 CannotMakeChange。
+• 面额非规范：面额 {1, 3, 4}，应付 6，验证 DP 选择 3 + 3 而非贪心的 4 + 1 + 1。
+• 金额上限：amount > MAX_AMOUNT，返回 AmountTooLarge。 
  
 4. Fabric 1.20.1 特别说明
 需求 Fabric 1.20.1 方案 注意
@@ -657,6 +801,8 @@ public final class ServerThreadAssert {
 • 不要使用 NeoForge 的 DeferredRegister、IEnergyStorage、SavedData、Data Components。
 • 物品来源用 NBT 键 steelcloud:origin，玩家数据用 PersistentState 或 Cardinal Components。
 • 服务通过 SteelCloudServices.get()（必需）或 find()（可选）获取，不直接 new 实现类。
+• train 模组是 Create 附属，核心不感知 Create；不要试图在核心中抽象线路、站点、时刻表。
+• 支付算法使用动态规划，不使用贪心。
 • 生成的代码必须编译通过，并通过对应模块的 GameTest。 
  
 6. 变更流程与版本
@@ -669,36 +815,26 @@ public final class ServerThreadAssert {
 6.2 版本号规则
  
 gradle.properties：
-core_api_version=0.2.0
+core_api_version=0.1.0
  
 格式：语义版本 MAJOR.MINOR.PATCH。
 • PATCH：javadoc、注释、文档措辞修正，不改签名。
 • MINOR：新增接口方法（提供 default 实现）、新增类型、新增可选方法。0.x 阶段允许 MINOR 含破坏性变更。
 • MAJOR：破坏性签名变更、删除接口、语义不兼容变更。 
-当前版本 0.2.0。
+当前状态：构思阶段，版本维持 0.1.0。首次编译通过并确认接口稳定后，正式进入 semver 递增，从 0.1.0 开始。
  
-6.3 变更日志
+6.3 修订记录
  
-v0.2.0
-破坏性变更：
-• TrainService.spawnTrain 返回 UUID → Optional<UUID>。
-• EconomyService.resetDailyLimitsIfNeeded 返回 void → boolean。
-• ModCompatService.requireOrWarn 返回 void → boolean。
-• EconomyService.getBalance 对未注册 UUID 抛 NoSuchAccountException。 
-新增：
-• SteelCloudServices（服务注册表）、ServiceUnavailableException。
-• 类型：TrainSpec、TrainSnapshot、TrainLifecycleListener、StoredTrain、TransferResult、DailyLimit、HealthThreshold、HealthChangeListener、DeathResult、SlotDefinition、SlotOperationResult、DimensionTravelRule、DataTableCodec、DataTableException。
-• NbtKeys、NetworkChannels、ServerThreadAssert。
-• TrainService.removeListener、HealthService.removeListener。
-• DataTableService.getRevision、addReloadListener、removeReloadListener。
-• SlotService.trySetSlotItem。 
-语义明确：
-• EconomyService.transfer 税额从 amount 中扣除，收款方得 amount - tax。
-• HealthService 写操作在创造模式/已死亡时静默忽略，值钳制 [0, 100]。
-• SlotService.getSlotItem 返回副本。
-• ItemOrigin 打标时机与"合成产物强制 CRAFTED"。
+构思阶段的修订直接在本文档内进行，不维护历史版本。以下为本次整理中确认的关键决策，供实现层参考：
+• train 子包定位为"Create 附属 train 模组的唯一入口"，不抽象 MTR 适配，不抽象线路/站点/时刻表。
+• spawnTrain 返回 Optional<UUID>，失败可诊断。
+• getBalance 对未注册 UUID 抛 NoSuchAccountException。
+• transfer 税额从 amount 中扣除，收款方得 amount - tax。
+• getSlotItem 返回副本，避免外部篡改内部存储。
 • DataTableService.reloadAll 后旧表快照继续有效，不失效。
-• getTrainsNear 的 radius 单位为方块。
-
-v0.1.0
-初始版本。
+• HealthService 写操作在创造模式/已死亡时静默忽略，值钳制 [0, 100]。
+• ItemOrigin 打标时机固定为合成/村民交易/流浪商人交易/拾取事件。
+• 支付算法使用动态规划（精确 → 超额找零 → 失败三阶段），不使用贪心。
+• 货币面额不强制规范，支持 1/5/20/50/100 共存。
+• PaymentService 采用净转移模型，一次性完成双方物品栏变更。
+• MAX_AMOUNT 默认 100,000，配置文件可改。
